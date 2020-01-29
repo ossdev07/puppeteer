@@ -105,6 +105,7 @@ const readdirAsync = helper.promisify(fs.readdir.bind(fs));
 const mkdirAsync = helper.promisify(fs.mkdir.bind(fs));
 const unlinkAsync = helper.promisify(fs.unlink.bind(fs));
 const chmodAsync = helper.promisify(fs.chmod.bind(fs));
+const statAsync = helper.promisify(fs.stat.bind(fs));
 
 function existsAsync(filePath: string): Promise<boolean> {
   return new Promise((resolve) => {
@@ -220,14 +221,29 @@ export class BrowserFetcher {
     if (!(await existsAsync(this._downloadsFolder)))
       await mkdirAsync(this._downloadsFolder);
     try {
-      await downloadFile(url, archivePath, progressCallback);
-      await install(archivePath, outputPath);
+      if (os.arch() === 'arm64') {
+        await statAsync('/usr/bin/chromium-browser', function (err, stats) {
+          if (stats === undefined) {
+            console.error(`The chromium binary is not available for arm64: `);
+            console.error(`If you are on Ubuntu, you can install with: `);
+            console.error(`\n apt-get install chromium-browser\n`);
+            throw new Error();
+          }
+        });
+      } else {
+        await downloadFile(url, archivePath, progressCallback);
+        await install(archivePath, outputPath);
+      }
     } finally {
-      if (await existsAsync(archivePath)) await unlinkAsync(archivePath);
+      if (os.arch() !== 'arm64')
+        if (await existsAsync(archivePath)) await unlinkAsync(archivePath);
     }
     const revisionInfo = this.revisionInfo(revision);
-    if (revisionInfo) await chmodAsync(revisionInfo.executablePath, 0o755);
-    return revisionInfo;
+    if (revisionInfo) {
+      if (os.arch() !== 'arm64')
+        await chmodAsync(revisionInfo.executablePath, 0o755);
+      return revisionInfo;
+    }
   }
 
   async localRevisions(): Promise<string[]> {
